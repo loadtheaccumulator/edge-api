@@ -1,7 +1,6 @@
 module github.com/redhatinsights/edge-api
 
 require (
-	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/aws/aws-sdk-go v1.44.24
 	github.com/bxcodec/faker/v3 v3.8.0
 	github.com/cavaliercoder/grab v2.0.0+incompatible
@@ -21,7 +20,7 @@ require (
 	github.com/prometheus/client_golang v1.12.2
 	github.com/redhatinsights/app-common-go v1.6.2
 	github.com/redhatinsights/platform-go-middlewares v0.17.0
-	github.com/segmentio/kafka-go v0.4.31
+	github.com/segmentio/kafka-go v0.4.32
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/viper v1.12.0
 	gopkg.in/confluentinc/confluent-kafka-go.v1 v1.8.2
