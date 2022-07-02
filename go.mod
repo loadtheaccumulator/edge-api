@@ -27,7 +27,7 @@ require (
 	github.com/spf13/viper v1.12.0
 	gorm.io/driver/postgres v1.3.7
 	gorm.io/driver/sqlite v1.3.5
-	gorm.io/gorm v1.23.4
+	gorm.io/gorm v1.23.7
 )
 
 go 1.16
