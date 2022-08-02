@@ -688,11 +688,10 @@ var _ = Describe("Image Service Test", func() {
 		})
 	})
 	Describe("Create image when using getImageSetForNewImage", func() {
-		orgID := faker.UUIDHyphenated()
+		orgID := common.DefaultOrgID
 		//requestID := faker.UUIDHyphenated()
-		arch := &models.Commit{Arch: "x86_64"}
 		imageName := faker.UUIDHyphenated()
-		image := models.Image{OrgID: orgID, Distribution: "rhel-85", Name: imageName, Commit: arch}
+		image := models.Image{OrgID: orgID, Distribution: "rhel-85", Name: imageName}
 		expectedErr := fmt.Errorf("failed to create commit for image")
 		When("When image-builder ComposeCommit fail", func() {
 			It("imageSet is created", func() {
@@ -756,9 +755,7 @@ var _ = Describe("Image Service Test", func() {
 					},
 				}
 				image := models.Image{OrgID: orgID, Distribution: dist, Name: imageName, Packages: pkgs, Commit: arch}
-				//expectedErr := fmt.Errorf("failed to create commit for image")
-				expectedErr := fmt.Errorf("image builder search packages request error")
-
+				expectedErr := fmt.Errorf("failed to create commit for image")
 				imageBuilder := &imageBuilderClient.SearchPackageResult{}
 				var s imageBuilderClient.SearchPackage
 				s.Name = "vim-common"
@@ -783,8 +780,7 @@ var _ = Describe("Image Service Test", func() {
 					},
 				}
 				image := models.Image{OrgID: orgID, Distribution: dist, Name: imageName, Packages: pkgs, Commit: arch}
-				expectedErr := fmt.Errorf("image builder search packages request error")
-				//				expectedErr := fmt.Errorf("package name doesn't exist")
+				expectedErr := fmt.Errorf("package name doesn't exist")
 				imageBuilder := &imageBuilderClient.SearchPackageResult{}
 				imageBuilder.Meta.Count = 0
 				mockImageBuilderClient.EXPECT().SearchPackage("badrpm", "x86_64", "rhel-85").Return(imageBuilder, expectedErr)
@@ -807,7 +803,7 @@ var _ = Describe("Image Service Test", func() {
 					},
 				}
 				image := models.Image{OrgID: orgID, Distribution: dist, Name: imageName, Packages: pkgs, Commit: arch}
-				expectedErr := fmt.Errorf("architecture and/or distribution are not set")
+				expectedErr := fmt.Errorf("value is not one of the allowed values")
 				imageBuilder := &imageBuilderClient.SearchPackageResult{}
 				mockImageBuilderClient.EXPECT().SearchPackage("vim-common", "", "rhel-85").Return(imageBuilder, expectedErr)
 				err := service.CreateImage(&image)
@@ -829,7 +825,7 @@ var _ = Describe("Image Service Test", func() {
 					},
 				}
 				image := models.Image{OrgID: orgID, Distribution: dist, Name: imageName, Packages: pkgs, Commit: arch}
-				expectedErr := fmt.Errorf("architecture and/or distribution are not set")
+				expectedErr := fmt.Errorf("value is not one of the allowed values")
 				imageBuilder := &imageBuilderClient.SearchPackageResult{}
 				mockImageBuilderClient.EXPECT().SearchPackage("vim-common", "x86_64", "").Return(imageBuilder, expectedErr)
 				err := service.CreateImage(&image)

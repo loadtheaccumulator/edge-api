@@ -143,52 +143,21 @@ func (s *ImageService) getImageSetForNewImage(orgID string, image *models.Image)
 	return &imageSet, nil
 }
 
-// packageIsValid confirms a package exists in ImageBuilder for image arch and dist
-func packageIsValid(ctx context.Context, image *models.Image, name string) (bool, error) {
-	pkgLog := log.WithFields(log.Fields{"arch": image.Commit.Arch, "distribution": image.Distribution, "package": name})
-	ibClient := imagebuilder.InitClient(ctx, pkgLog)
-	pkgLog.Debug("Checking package exists in RHEL for Edge arch and distribution")
-	res, err := ibClient.SearchPackage(name, image.Commit.Arch, image.Distribution)
-	if err != nil {
-		log.WithFields(log.Fields{"package": name, "error": err.Error()}).Error("Search for package failed with error")
-		return false, err
-	}
-	if res.Meta.Count == 0 {
-		log.WithFields(log.Fields{"package": name, "meta_count": res.Meta.Count}).Error("Package search meta count is zero")
-		return false, new(PackageNameDoesNotExist)
-	}
-	for _, pkg := range res.Data {
-		if pkg.Name == name {
-			log.WithFields(log.Fields{"package": name, "meta_count": res.Meta.Count}).Debug("Package name matched in")
-			return true, nil
-		}
-	}
-	return false, new(PackageNameDoesNotExist)
-}
-
-// PackagesAreValid loops through packages in the list and validates with ImageBuilder
-func PackagesAreValid(ctx context.Context, image *models.Image) (bool, error) {
-	for _, p := range image.Packages {
-		if valid, err := packageIsValid(ctx, image, p.Name); !valid {
-			log.WithFields(log.Fields{"package": p.Name, "error": err.Error()}).Error("Package is not valid")
-
-			return false, err
-		}
-	}
-
-	return true, nil
-}
-
 // CreateImage sets up the image for the EDA-based CreateImage
 func (s *ImageService) CreateImage(image *models.Image) error {
-	if valid, err := image.IsValid(); !valid {
+
+	// TODO: move these three checks to an image.IsValid()
+	if image.OrgID == "" {
+		return new(OrgIDNotSet)
+	}
+	if image.Name == "" {
+		return new(ImageNameUndefined)
+	}
+	imageNameExists, err := s.CheckImageName(image.Name, image.OrgID)
+	if err != nil {
 		return err
 	}
-
-	if exists, err := image.ExistsByName(); exists {
-		if err != nil {
-			return err
-		}
+	if imageNameExists {
 		return new(ImageNameAlreadyExists)
 	}
 
@@ -196,11 +165,17 @@ func (s *ImageService) CreateImage(image *models.Image) error {
 		image.Version = 1
 	}
 
-	if valid, err := PackagesAreValid(s.ctx, image); !valid {
-		return err
+	// TODO: move this to image.PackageSomethingOrOther()
+	packages := image.Packages
+	// we now need to loop this request for each package
+	for _, p := range packages {
+		er := s.ValidateImagePackage(p.Name, image)
+		if er != nil {
+			return er
+		}
 	}
-
 	imagesrepos, err := GetImageReposFromDB(image.OrgID, image.ThirdPartyRepositories)
+
 	if err != nil {
 		return err
 	}
@@ -936,7 +911,7 @@ func (s *ImageService) UpdateImageStatus(image *models.Image) (*models.Image, er
 
 // CheckImageName returns false if the image doesnt exist and true if the image exists
 func (s *ImageService) CheckImageName(name, orgID string) (bool, error) {
-	//s.log.WithField("name", name).Debug("Checking image name")
+	s.log.WithField("name", name).Debug("Checking image name")
 	var imageFindByName *models.Image
 	result := db.Org(orgID, "").Where("(name = ?)", name).First(&imageFindByName)
 	if result.Error != nil {
