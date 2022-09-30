@@ -95,6 +95,10 @@ const (
 	ImageStatusInterrupted = "INTERRUPTED"
 	// ImageStatusPending is for when an image or installer is waiting to be built
 	ImageStatusPending = "PENDING"
+	// ImageStatusNA indicates a repo and installer are not applicable
+	ImageStatusNA = "N/A"
+	// ImageStatusQueued indicates a commit, repo, or installer has not been started
+	ImageStatusQueued = "QUEUED"
 
 	// MissingInstaller is the error message for not passing an installer in the request
 	MissingInstaller = "installer info must be provided"
