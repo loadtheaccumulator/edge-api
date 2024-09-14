@@ -5,13 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/redhatinsights/edge-api/config"
+	"github.com/redhatinsights/edge-api/pkg/clients/pulp"
 	"github.com/redhatinsights/edge-api/pkg/db"
 	"github.com/redhatinsights/edge-api/pkg/models"
 	feature "github.com/redhatinsights/edge-api/unleash/features"
@@ -27,7 +31,7 @@ var BuildCommand = exec.Command
 // RepoBuilderInterface defines the interface of a repository builder
 type RepoBuilderInterface interface {
 	BuildUpdateRepo(id uint) (*models.UpdateTransaction, error)
-	StoreRepo(r *models.Repo) (*models.Repo, error)
+	StoreRepo(repo *models.Repo) (*models.Repo, error)
 	ImportRepo(r *models.Repo) (*models.Repo, error)
 	CommitTarDownload(c *models.Commit, dest string) (string, error)
 	CommitTarExtract(c *models.Commit, tarFileName string, dest string) error
@@ -365,10 +369,154 @@ func (rb *RepoBuilder) BuildUpdateRepo(id uint) (*models.UpdateTransaction, erro
 
 // StoreRepo requests Pulp to create/update an ostree repo from an IB commit
 func (rb *RepoBuilder) StoreRepo(repo *models.Repo) (*models.Repo, error) {
-	// FIXME: add the Pulp repo create here
-	// 	this allows both to happen until code that updates the DB is added
+	ctx := context.Background()
 
-	return rb.ImportRepo(repo)
+	var cmt models.Commit
+	cmtDB := db.DB.Where("repo_id = ?", repo.ID).First(&cmt)
+	if cmtDB.Error != nil {
+		return nil, cmtDB.Error
+	}
+
+	cfg := config.Get()
+
+	type PulpCommit struct {
+		OrgID      string
+		DomainName string
+		DomainUUID uuid.UUID
+		RepoID     uint
+		RepoName   string
+		SourceURL  string
+	}
+
+	pulpCommit := PulpCommit{
+		OrgID:      cmt.OrgID,
+		DomainName: fmt.Sprintf("em%sd", cmt.OrgID),
+		RepoName:   fmt.Sprintf("repo-%s-%d", cmt.OrgID, repo.ID),
+		SourceURL:  cmt.ImageBuildTarURL,
+	}
+
+	c, err := pulp.NewPulpServiceDefaultDomain(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	domains, err := c.DomainsList(ctx, pulpCommit.DomainName)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"domain_name": pulpCommit.DomainName,
+			"error":       err.Error(),
+		}).Error("Error listing pulp domains")
+		return nil, err
+	}
+	if len(domains) > 1 {
+		log.WithFields(log.Fields{
+			"name":    pulpCommit.DomainName,
+			"domains": domains,
+		}).Error("More than one domain matches name")
+		return nil, errors.New("More than one domain matches name")
+	}
+	if len(domains) == 0 {
+		createdDomain, err := c.DomainsCreate(ctx, pulpCommit.DomainName)
+		if err != nil {
+			log.WithField("error", err.Error()).Error("Error creating pulp domain")
+			return nil, err
+		}
+
+		pulpCommit.DomainUUID = pulp.ScanUUID(createdDomain.PulpHref)
+
+		log.WithFields(log.Fields{
+			"domain_name": createdDomain.Name,
+			"domain_href": createdDomain.PulpHref,
+			"domain_uuid": pulpCommit.DomainUUID,
+		}).Info("Created new pulp domain")
+	}
+
+	c, err = pulp.NewPulpServiceWithDomain(ctx, pulpCommit.DomainName)
+	if err != nil {
+		return nil, err
+	}
+
+	frepo, err := c.FileRepositoriesEnsure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("File repo found or created: ", frepo)
+
+	artifact, version, err := c.FileRepositoriesImport(ctx, frepo, pulpCommit.SourceURL)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info("Artifact uploaded: ", artifact, " ", version)
+
+	pulpRepo, err := c.RepositoriesCreate(ctx, pulpCommit.RepoName)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("Repository created", *pulpRepo.PulpHref)
+
+	cg, err := c.ContentGuardEnsure(ctx, pulpCommit.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("Content guard found or created", *cg.PulpHref, (*cg.Guards)[0], (*cg.Guards)[1])
+
+	dist, err := c.DistributionsCreate(ctx, pulpCommit.RepoName, pulpCommit.RepoName, *pulpRepo.PulpHref, *cg.PulpHref)
+	if err != nil {
+		return nil, err
+	}
+	log.WithFields(log.Fields{
+		"name":      dist.Name,
+		"base_path": dist.BasePath,
+		"base_url":  dist.BaseUrl,
+		"pulp_href": dist.PulpHref,
+	}).Info("Distribution created")
+
+	repoImported, err := c.RepositoriesImport(ctx, pulp.ScanUUID(pulpRepo.PulpHref), "repo", artifact)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("Repository imported", *repoImported.PulpHref)
+
+	err = c.FileRepositoriesVersionDelete(ctx, pulp.ScanUUID(&version), pulp.ScanRepoFileVersion(&version))
+	if err != nil {
+		return nil, err
+	}
+	log.Info("Artifact version deleted", version)
+
+	// FIXME: this URL returned from Pulp should be the one to plug in to Image Builder
+	distBaseURL := *dist.BaseUrl
+	prodDistURL, err := url.Parse(distBaseURL)
+	if err != nil {
+		return nil, errors.New("Unable to set user:password for Pulp distribution URL")
+	}
+	prodDistURL.User = url.UserPassword(cfg.PulpContentUsername, cfg.PulpContentPassword)
+
+	repo.URL = prodDistURL.String()
+
+	// temporarily handle stage URLs
+	if strings.Contains(distBaseURL, "stage") {
+		repo.URL = fmt.Sprintf("https://%s:%s@%s/api/pulp-content/%s/%s/",
+			cfg.PulpContentUsername, cfg.PulpContentPassword, cfg.PulpURL,
+			c.Domain(), pulpCommit.RepoName)
+	}
+
+	repo.Status = models.RepoStatusSuccess
+
+	log.WithFields(log.Fields{
+		"dist_base_url": distBaseURL,
+		"prod_dist_url": prodDistURL,
+		"repo_url":      repo.URL,
+		"status":        repo.Status,
+	}).Debug("DOWNLOAD COMMANDS")
+
+	result := db.DB.Save(&repo)
+	if result.Error != nil {
+		rb.log.WithField("error", result.Error.Error()).Error("Error saving repo")
+		return nil, fmt.Errorf("error saving status :: %s", result.Error.Error())
+	}
+
+	return repo, nil
 }
 
 // ImportRepo (unpack and upload) a single repo
