@@ -76,6 +76,7 @@ type EdgeConfig struct {
 	SubscriptionServerURL      string                    `json:"subscription_server_url"`
 	SubscriptionBaseUrl        string                    `json:"subscription_base_url"`
 	PulpURL                    string                    `json:"pulp_url,omitempty"`
+	PulpContentURL             string                    `json:"pulp_content_url,omitempty"`
 	PulpUsername               string                    `json:"pulp_username,omitempty"`
 	PulpPassword               string                    `json:"pulp_password,omitempty"`
 	PulpContentUsername        string                    `json:"pulp_content_username,omitempty"`
@@ -130,6 +131,7 @@ type Pulp struct {
 	URL                string
 	Username           string
 	Password           string
+	ContentURL         string `mapstructure:"content_url,omitempty"`
 	ContentUsername    string `mapstructure:"content_username,omitempty"`
 	ContentPassword    string `mapstructure:"content_password,omitempty"`
 	IdentityName       string `mapstructure:"identity_name,omitempty"`
@@ -175,6 +177,7 @@ func readPulpConfig() (Pulp, error) {
 	options.SetDefault("url", "http://pulp-service:8080")
 	options.SetDefault("username", "edge-api-dev")
 	options.SetDefault("password", "")
+	options.SetDefault("content_url", "")
 	options.SetDefault("content_username", "edge-content-dev")
 	options.SetDefault("content_password", "")
 	options.SetDefault("guard_subject_dn", "")
@@ -331,6 +334,7 @@ func CreateEdgeAPIConfig() (*EdgeConfig, error) {
 		SubscriptionServerURL:      options.GetString("SUBSCRIPTION_SERVER_URL"),
 		SubscriptionBaseUrl:        options.GetString("SUBSCRIPTION_BASE_URL"),
 		PulpURL:                    pulpConfig.URL, // these pulp entries are temporary for backward compatibility
+		PulpContentURL:             pulpConfig.ContentURL,
 		PulpUsername:               pulpConfig.Username,
 		PulpPassword:               pulpConfig.Password,
 		PulpContentUsername:        pulpConfig.ContentUsername,
@@ -562,6 +566,7 @@ func LogConfigAtStartup(cfg *EdgeConfig) {
 		"RepoFileUploadDelay":      cfg.RepoFileUploadDelay,
 		"UploadWorkers":            cfg.UploadWorkers,
 		"PulpURL":                  cfg.PulpURL,
+		"PulpContentURL":           cfg.PulpContentURL,
 		"PulpGuardSubjectDN":       cfg.PulpGuardSubjectDN,
 	}
 
