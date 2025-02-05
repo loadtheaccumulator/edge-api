@@ -85,9 +85,6 @@ var CleanUPOrphanCommits = &Flag{Name: "edge-management.cleanup_orphan_commits",
 
 // STATIC DELTA FLAGS
 
-// SkipUpdateRepo is a feature flag to skip the process of download and re-upload of update repositories
-var SkipUpdateRepo = &Flag{Name: "edge-management.skip_update_repo", EnvVar: "FEATURE_SKIP_UPDATE_REPO"}
-
 // HideCreateGroup toggles creation of static deltas
 var HideCreateGroup = &Flag{Name: "edge-management.hide-create-group", EnvVar: "FEATURE_HIDE_CREATE_GROUP"}
 
